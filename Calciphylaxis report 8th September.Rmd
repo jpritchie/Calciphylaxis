@@ -1,0 +1,724 @@
+---
+title: "Calciphylaxis - preliminary analyses"
+author: "Huckle / Ritchie / Sinha"
+output: pdf_document
+---
+```{r, echo=FALSE, print=FALSE, include=FALSE}
+#REPRODUCE THE DATA CLEANING
+
+#SET WORKING DIRECTORY
+setwd("~/Dropbox/Calciphylaxis")
+
+#DEFINE PACKAGES
+require(readxl)
+require(dplyr)
+require(tidyr)
+require(ggplot2)
+
+#IMPORT DATA
+  CAL_baseline<-read_excel("Calciphylaxis.xlsx",sheet=1)
+  CAL_followup<-read_excel("Calciphylaxis.xlsx",sheet=2)
+  
+  CAL_baseline_unedited<-read_excel("Calciphylaxis.xlsx",sheet=1)
+
+##### FIRST CLEAN BASELINE DATA SHEET  
+  
+#ASSIGN DATA CHARACTERISITCS / LABEL CORRECTLY
+  #baseline
+  CAL_baseline$LocalContactEmail<-NULL #Not useful to analysis
+  CAL_baseline$Date<-NULL #missing data and appears largely to duplicate consent date column
+  CAL_baseline$`1_Consent`<-NULL #Not useful to analysis
+  CAL_baseline$`1a_ConsentDate`<-as.Date(CAL_baseline$`1a_ConsentDate`, "%d/%m/%Y")
+  CAL_baseline$`1b_Gender`<-ifelse(CAL_baseline$`1b_Gender`=="1","Male",ifelse(CAL_baseline$`1b_Gender`=="2", "Female", NA))
+  CAL_baseline$`1d_Weight`<-NULL #38/71 missing
+  CAL_baseline$`1e_BMI`<-NULL #39/71 missing
+  CAL_baseline$`2_Race`<-NULL #Awaiting key from Abby; only 4 are not coded as '1' so likely uninformative for analysis
+  CAL_baseline$`3_DateFirstTreatment`<-as.Date(CAL_baseline$`3_DateFirstTreatment`, "%d/%m/%Y") #For analysis, presume this is first HD - need to confirm with Abby
+  #Column 5_ not yet addressed as need to understand the coding
+  CAL_baseline$`4_RenalStatus`<-ifelse(CAL_baseline$`4_RenalStatus`=="1", "CKD1", 
+                                ifelse(CAL_baseline$`4_RenalStatus`=="2", "CKD2", 
+                                ifelse(CAL_baseline$`4_RenalStatus`=="3", "CKD3a", 
+                                ifelse(CAL_baseline$`4_RenalStatus`=="4", "CKD3b", 
+                                ifelse(CAL_baseline$`4_RenalStatus`=="5", "CKD4", 
+                                ifelse(CAL_baseline$`4_RenalStatus`=="6", "CKD5", 
+                                ifelse(CAL_baseline$`4_RenalStatus`=="7", "Transplant", 
+                                ifelse(CAL_baseline$`4_RenalStatus`=="8", "HD/HDF", 
+                                ifelse(CAL_baseline$`4_RenalStatus`=="9", "PD", 
+                                ifelse(CAL_baseline$`4_RenalStatus`=="10", "Non-CKD", NA))))))))))
+  
+  #Update binary co-morbidities to Yes / No for clarity of reading (columns 5 / 6)
+  #function
+  Comorbid_code<- function(x) {
+                     x<-as.character(x)
+                     x<-ifelse(x == "1", "Yes",ifelse(x =="2","No",  NA)) #<<- to return to global environment
+                     x<<-as.factor(x)
+  }
+  
+  #lapply over appropraite columns
+  CAL_baseline[7:9]<-lapply(CAL_baseline[7:9], Comorbid_code)
+  #this is hashed out here to make table summing / generation easier for baseline co-morbid states
+  #CAL_baseline[10:17]<-lapply(CAL_baseline[10:17], Comorbid_code)
+  
+  CAL_baseline$`6_Parathyroid_Date`<-as.Date(CAL_baseline$`6_Parathyroid_Date`, "%d/%m/%Y")
+  CAL_baseline$`6_Reimplantation`<-NULL #Dropped presently for analysis as no key availalbe to understand coding
+  
+  #standardise iPTH and PTH units to pmol/L
+  CAL_baseline$`7_iPTH`<-ifelse(CAL_baseline$`7_iPTH`>0 & CAL_baseline$`7_iPTH_Unit`=="ng/L", CAL_baseline$`7_iPTH`*0.106, CAL_baseline$`7_iPTH`)
+  CAL_baseline$`7_iPTH`<-round(CAL_baseline$`7_iPTH`, digits=0)
+  CAL_baseline$`7_iPTH_Unit`<-NULL
+  CAL_baseline$`7_PTH`<-ifelse(CAL_baseline$`7_PTH`>0 & CAL_baseline$`7_PTH_Unit`=="ng/L", CAL_baseline$`7_PTH`*0.106, CAL_baseline$`7_PTH`)
+  CAL_baseline$`7_PTH`<-round(CAL_baseline$`7_PTH`, digits=0)
+  CAL_baseline$`7_PTH_Unit`<-NULL
+  
+  CAL_baseline$`7_CRP`<-round(CAL_baseline$`7_CRP`, digits=0)
+  
+  #standardise haemoglobin values to g/dL
+  CAL_baseline$`7_Haemoglobin`<-ifelse(CAL_baseline$`7_Haemoglobin`>0 & CAL_baseline$`7_Haemoglobin_Unit`=="g/L" | CAL_baseline$`7_Haemoglobin`>0 & CAL_baseline$`7_Haemoglobin_Unit`=="g/l", CAL_baseline$`7_Haemoglobin`/10, CAL_baseline$`7_Haemoglobin`)
+  CAL_baseline$`7_Haemoglobin_Unit`<-NULL
+  
+  #clean RRT data
+  CAL_baseline$`8_Haemodialysis_Sessions`[CAL_baseline$`8_Haemodialysis_Sessions`=="0"]<-NA #remove 0 as integer fornumber of HD sessions - this has been entered for some transplant patients
+  CAL_baseline$`8_Haemodialysis_KtV`<-NULL #significant missing data (58/71)
+  CAL_baseline$`8_Haemodialysis_BloodUreaReductionRatio`[CAL_baseline$`8_Haemodialysis_BloodUreaReductionRatio`=="N/A"]<-NA #correctly label na values 
+  CAL_baseline$`8_Haemodialysis_BloodUreaReductionRatio`<-gsub("%", "", CAL_baseline$`8_Haemodialysis_BloodUreaReductionRatio`)
+  CAL_baseline$`8_Haemodialysis_BloodUreaReductionRatio`<-as.numeric(as.character(CAL_baseline$`8_Haemodialysis_BloodUreaReductionRatio`))
+  CAL_baseline$`8_Haemodialysis_BloodUreaReductionRatio`<-round(CAL_baseline$`8_Haemodialysis_BloodUreaReductionRatio`, digits=0)
+    #remove PD data as only 4 patients hence uninformative for detailed analysis
+    CAL_baseline$`8_PeritonealDialysis_KtV`<-NULL
+    CAL_baseline$`8_PeritonealDialysis_KtV`<-NULL
+    CAL_baseline$`8_PeritonealDialysis_Therapy`<-NULL
+    CAL_baseline$`8_PeritonealDialysis_Creatinine`<-NULL
+    CAL_baseline$`8_PeritonealDialysis_DialysisVolume`<-NULL
+    
+  #Vitamin d
+  #CAL_baseline[34:35]<-lapply(CAL_baseline[35:35], Comorbid_code)
+  CAL_baseline$`9_DrugName`<-ifelse(CAL_baseline$`9_DrugName`=="alfacalcidol" 
+                                    |CAL_baseline$`9_DrugName`=="alpha calcidol" 
+                                    | CAL_baseline$`9_DrugName`=="alphacacidol" 
+                                    | CAL_baseline$`9_DrugName`=="alphacalcidol" 
+                                    | CAL_baseline$`9_DrugName`=="one alpha calcidol" 
+                                    | CAL_baseline$`9_DrugName`=="onealphacalcidol" 
+                                    |CAL_baseline$`9_DrugName`=="Alphacalcidol", "Alphacalcidol", 
+                                    ifelse(CAL_baseline$`9_DrugName`=="calcitriol"
+                                    | CAL_baseline$`9_DrugName`=="Calcitrol", "Calcitriol", 
+                                    ifelse(CAL_baseline$`9_DrugName`=="Colecalciferol"
+                                    |CAL_baseline$`9_DrugName`=="Colecalciferol 800", "Colecalciferol", 
+                                    ifelse(CAL_baseline$`9_DrugName`=="paricalcitol", "Paricalcitol", NA))))
+  CAL_baseline$`9_Dose`<-NULL #inconsistent; needs review before use in analysis
+  CAL_baseline$`9_Unit`<-NULL #dependent on above
+  CAL_baseline$`9_Frequency`<-NULL #dependent on above
+  CAL_baseline$`9_Duration`<-NULL #needs discussion with study leads
+  
+  #make PO4 binder binary
+  # CAL_baseline[37]<-lapply(CAL_baseline[37], Comorbid_code) - hashed out for tabulation
+  #huge spread of binder names - simplify to Number of binders / Ca containing binder
+  CAL_baseline$`9_PhosphateBinders_DrugName1`<-as.numeric(as.character(CAL_baseline$`9_PhosphateBinders_DrugName1`))
+  CAL_baseline$`9_PhosphateBinders_DrugName2`<-as.numeric(as.character(CAL_baseline$`9_PhosphateBinders_DrugName2`))
+  CAL_baseline$`9_PhosphateBinders_DrugName3`<-as.numeric(as.character(CAL_baseline$`9_PhosphateBinders_DrugName3`))
+    #drop redundent data for analysis
+    CAL_baseline$`9_PhosphateBinder_Dose1`<-NULL
+    CAL_baseline$`9_PhosphateBinder_Dose2`<-NULL
+    CAL_baseline$`9_PhosphateBinder_Dose3`<-NULL
+    CAL_baseline$`9_PhosphateBinder_Unit1`<-NULL
+    CAL_baseline$`9_PhosphateBinder_Unit2`<-NULL
+    CAL_baseline$`9_PhosphateBinder_Unit3`<-NULL
+    CAL_baseline$`9_PhosphateBinder_Duration1`<-NULL
+    CAL_baseline$`9_PhosphateBinder_Duration2`<-NULL
+    CAL_baseline$`9_PhosphateBinder_Duration3`<-NULL
+    CAL_baseline$`9_PhosphateBinder_Frequency1`<-NULL
+    CAL_baseline$`9_PhosphateBinder_Frequency2`<-NULL
+    CAL_baseline$`9_PhosphateBinder_Frequency3`<-NULL
+    CAL_baseline$`9_PhosphateBinders_DrugName1_Other`<-NULL
+    CAL_baseline$`9_PhosphateBinders_DrugName2_Other`<-NULL
+    CAL_baseline$`9_PhosphateBinders_DrugName3_Other`<-NULL
+  
+    CAL_baseline$`9_Binder_Number`<-ifelse(CAL_baseline$`9_PhosphateBinders_DrugName1`>0 
+                                           & CAL_baseline$`9_PhosphateBinders_DrugName2`>0 
+                                           & CAL_baseline$`9_PhosphateBinders_DrugName3`>0, 3, 
+                                           ifelse(CAL_baseline$`9_PhosphateBinders_DrugName1`>0 
+                                           & CAL_baseline$`9_PhosphateBinders_DrugName2`>0 
+                                           & CAL_baseline$`9_PhosphateBinders_DrugName3`<0, 2, 
+                                           ifelse(CAL_baseline$`9_PhosphateBinders_DrugName1`>0 
+                                           & CAL_baseline$`9_PhosphateBinders_DrugName2`<0 
+                                           & CAL_baseline$`9_PhosphateBinders_DrugName3`<0, 1, 0)))
+    
+    CAL_baseline$`9_Phosphate_Binder_Calcium`<-ifelse(CAL_baseline$`9_PhosphateBinders_DrugName1`=="4"
+                                                      |CAL_baseline$`9_PhosphateBinders_DrugName1`=="5"
+                                                      |CAL_baseline$`9_PhosphateBinders_DrugName1`=="7"
+                                                      |CAL_baseline$`9_PhosphateBinders_DrugName1`=="8"
+                                                      |CAL_baseline$`9_PhosphateBinders_DrugName2`=="4"
+                                                      |CAL_baseline$`9_PhosphateBinders_DrugName2`=="5"
+                                                      |CAL_baseline$`9_PhosphateBinders_DrugName2`=="7"
+                                                      |CAL_baseline$`9_PhosphateBinders_DrugName2`=="8"
+                                                      |CAL_baseline$`9_PhosphateBinders_DrugName3`=="4"
+                                                      |CAL_baseline$`9_PhosphateBinders_DrugName3`=="5"
+                                                      |CAL_baseline$`9_PhosphateBinders_DrugName3`=="7"
+                                                      |CAL_baseline$`9_PhosphateBinders_DrugName3`=="8", "1", "0")
+    
+    CAL_baseline$`9_Phosphate_Binder_Calcium`<-as.numeric(as.character(CAL_baseline$`9_Phosphate_Binder_Calcium`))
+    
+    CAL_baseline$`9_PhosphateBinders_DrugName1`<-NULL
+    CAL_baseline$`9_PhosphateBinders_DrugName2`<-NULL
+    CAL_baseline$`9_PhosphateBinders_DrugName3`<-NULL
+    #move these new columns into the appropriate position
+    CAL_baseline<-CAL_baseline[,c(1:37,74,75,38:73)]
+    #calcimimetics - relabel and drop additional info
+    # CAL_baseline[40]<-lapply(CAL_baseline[40], Comorbid_code)
+      CAL_baseline$`9_Calcimimetics_DrugName`<-NULL
+      CAL_baseline$`9_Calcimimetics_Unit`<-NULL
+      CAL_baseline$`9_Calcimimetics_Dose`<-NULL
+      CAL_baseline$`9_Calcimimetics_Frequency`<-NULL
+      CAL_baseline$`9_Calcimimetics_Duration`<-NULL
+   #CAL_baseline[41]<-lapply(CAL_baseline[41], Comorbid_code)
+   #CAL_baseline[43:44]<-lapply(CAL_baseline[43:44], Comorbid_code)
+   CAL_baseline$`9_Calcimimetics_VitaminK_Indication`<-NULL #almost all for AF
+   
+   #baseline diagnosis of calciphlaxis details
+   CAL_baseline$`10_Date`<-as.Date(CAL_baseline$`10_Date`, "%d/%m/%Y")
+   #CAL_baseline[46]<-lapply(CAL_baseline[46], Comorbid_code)
+   CAL_baseline$`10_ContributingEvent`<-NULL
+   CAL_baseline$`10_ContributingEventIfYes`<-NULL #12 contributing events recorded, 4 trauma, 8 other. Limited use in analysis at present
+   #CAL_baseline[46:51]<-lapply(CAL_baseline[46:51], Comorbid_code) #hashed out recode for tablulation purposes
+   CAL_baseline$`10_DiagnosisMadeBy_Other`<-NULL #not used at this time
+   #CAL_baseline[52:61]<-lapply(CAL_baseline[52:61], Comorbid_code) #hashed out recode for tablulation purposes
+   CAL_baseline$`10_LocationOfLesions_Other`<-NULL
+   CAL_baseline[62]<-lapply(CAL_baseline[62], Comorbid_code)
+   
+   #drop final three biochemical columns due to missing data
+   CAL_baseline$`10_Phosphate`<-NULL
+   CAL_baseline$`10_MaximumSerum`<-NULL
+   CAL_baseline$`10_PTH`<-NULL 
+ 
+###########################################################################################################   
+     
+###NOW CLEAN THE FOLLOW UP DATA SHEET
+   CAL_followup$Date<-as.Date(CAL_followup$Date, "%d/%m/%Y")
+   CAL_followup$LocalContactEmail<-NULL
+   
+   #format dates (these are now dropped as minimal difference from actual follow up date)
+   CAL_followup$`1_Creatinine_Date`<-as.Date(CAL_followup$`1_Creatinine_Date`, "%d/%m/%Y")
+   CAL_followup$`1_Calcium_Date`<-as.Date(CAL_followup$`1_Calcium_Date`, "%d/%m/%Y")
+   CAL_followup$`1_CorrectedCalcium_Date`<-as.Date(CAL_followup$`1_CorrectedCalcium_Date`, "%d/%m/%Y")
+   CAL_followup$`1_PTH_Date`<-as.Date(CAL_followup$`1_PTH_Date`, "%d/%m/%Y")
+   CAL_followup$`1_iPTH_Date`<-as.Date(CAL_followup$`1_iPTH_Date`, "%d/%m/%Y")
+   CAL_followup$`1_TotalProtein_Date`<-as.Date(CAL_followup$`1_TotalProtein_Date`, "%d/%m/%Y")
+   CAL_followup$`1_Albumin_Date`<-as.Date(CAL_followup$`1_Albumin_Date`, "%d/%m/%Y")
+   CAL_followup$`1_AlkalinePhosphatise_Date`<-as.Date(CAL_followup$`1_AlkalinePhosphatise_Date`, "%d/%m/%Y")
+   CAL_followup$`1_CRP_Date`<-as.Date(CAL_followup$`1_CRP_Date`, "%d/%m/%Y")
+   CAL_followup$`1_Haemoglobin_Date`<-as.Date(CAL_followup$`1_Haemoglobin_Date`, "%d/%m/%Y")
+   CAL_followup$`1_Phosphate_Date`<-as.Date(CAL_followup$`1_Phosphate_Date`, "%d/%m/%Y")
+   
+     CAL_followup$`1_Creatinine_Date`<-NULL
+     CAL_followup$`1_Calcium_Date`<-NULL
+     CAL_followup$`1_CorrectedCalcium_Date`<-NULL
+     CAL_followup$`1_PTH_Date`<-NULL
+     CAL_followup$`1_iPTH_Date`<-NULL
+     CAL_followup$`1_TotalProtein_Date`<-NULL
+     CAL_followup$`1_Albumin_Date`<-NULL
+     CAL_followup$`1_AlkalinePhosphatise_Date`<-NULL
+     CAL_followup$`1_CRP_Date`<-NULL
+     CAL_followup$`1_Haemoglobin_Date`<-NULL
+     CAL_followup$`1_Phosphate_Date`<-NULL
+     
+    CAL_followup$`2_LocationOfLesions_Other`<-NULL
+    CAL_followup$`3_MedicalInterventions_DialysisModalityDescribe`<-NULL
+    CAL_followup$`3_MedicalInterventionsBisphosphonates_Name`<-NULL
+    CAL_followup$`3_MedicalInterventionsBisphosphonates_Dose`<-NULL
+    CAL_followup$`3_MedicalInterventionsBisphosphonates_Route`<-NULL
+    CAL_followup$`3_MedicalInterventiosnBisphosphonates_Length`<-NULL
+    CAL_followup$`3_MedicalInterventionsHyperbaricOxygen_Prescription`<-NULL
+    CAL_followup$`3_MedicalInterventiosnSodiumThiosulphate_Length`<-NULL
+    CAL_followup$`3_MedicalInterventionsSodiumThiosulphate_Dose`<-NULL
+    
+    CAL_followup[15:41]<-lapply(CAL_followup[15:41], Comorbid_code)
+    
+    CAL_followup$`4_ParathyroidectomyDate`<-as.Date(CAL_followup$`4_ParathyroidectomyDate`, "%d/%m/%Y")
+    
+    CAL_followup$`4_Other`<-NULL
+    
+    CAL_followup[43:59]<-lapply(CAL_followup[43:59], Comorbid_code)
+    
+    CAL_followup$`7_SkinLesionsResolveDate`<-as.Date(CAL_followup$`7_SkinLesionsResolveDate`, "%d/%m/%Y")
+    
+    #end points - clean up death information
+    CAL_followup$`8_Death`[CAL_followup$`8_Death`=="N/A"]<-NA #remove 0 as integer fornumber of HD sessions - this has been entered for some transplant patients
+    CAL_followup$`8_Death`[CAL_followup$`8_Death`=="N/A pt still alive"]<-NA #remove 0 as integer fornumber of HD sessions - this has been entered for some transplant patients
+    CAL_followup$`8_Death`[CAL_followup$`8_Death`=="unknown"]<-NA #remove 0 as integer fornumber of HD sessions - this has been entered for some transplant patients
+    CAL_followup$`8_Death`<-ifelse(is.na(CAL_followup$`8_Death`), 0,1)
+    
+      #placeholder update as ID 84 is RIP and not properly recorded in provided data
+      CAL_followup$`8_Death`<-ifelse(CAL_followup$StudyID=="84",1,CAL_followup$`8_Death`)
+    
+    CAL_followup[62:63]<-lapply(CAL_followup[62:63], Comorbid_code)
+    
+    CAL_followup$`11_Comments`<-NULL 
+```
+
+```{r echo=FALSE}
+
+#TIME STAMPS
+    Date_report<-Sys.Date()
+    Date_report<-format(Date_report, '%d %B, %Y')
+```
+
+This is a summary report for the calciphylaxis data prior to ERA-EDTA.  This  analysis was run on `r Date_report`.  
+
+# Summary of baseline data
+
+```{r echo=FALSE}
+#CODE FOR DESCRIPTIVE DEMOGRAPHIC DATA
+   
+    #demographics
+    Gender_completeness<- (nrow(CAL_baseline)-sum(is.na(CAL_baseline$`1b_Gender`)))
+    Male_no<- sum(CAL_baseline$`1b_Gender`=="Male", na.rm=T)
+    Female_no<- sum(CAL_baseline$`1b_Gender`=="Female", na.rm=T)
+    
+    Age_dist<-shapiro.test(CAL_baseline$`1c_Age`)
+    Age_dist<-round(Age_dist$p.value, digits=2)
+    
+    Age_missing<-sum(is.na(CAL_baseline$`1c_Age`))
+    
+    Age_overall_mean<- round(mean(CAL_baseline$`1c_Age`, na.rm=T), digits=1)
+    Age_overall_SD<-round(mean(CAL_baseline$`1c_Age`, na.rm=T), digits=1)
+    
+    Male<-subset(CAL_baseline, CAL_baseline$`1b_Gender`=="Male")
+    Male_mean<-round(mean(Male$`1c_Age`, na.rm=T), digits=1)
+    
+    Female<-subset(CAL_baseline, CAL_baseline$`1b_Gender`=="Female")
+    Female_mean<-round(mean(Female$`1c_Age`, na.rm=T), digits=1)
+    
+    Age.t<-t.test(CAL_baseline$`1c_Age`~CAL_baseline$`1b_Gender`)
+    Age.t.p<-round(Age.t$p.value, digits=2)
+    
+      Caucasian<-subset(CAL_baseline_unedited, CAL_baseline_unedited$`2_Race`=="1")
+      Non_caucasian<-(nrow(CAL_baseline) - nrow(Caucasian))
+      CAL_baseline_unedited$`2_Race`[CAL_baseline_unedited$`2_Race`=="-1"] <-NA
+      Ethnicity_missing<-sum(is.na(CAL_baseline_unedited$`2_Race`))
+      weight_missing<-sum(is.na(CAL_baseline_unedited$`1d_Weight`))
+      bmi_missing<-sum(is.na(CAL_baseline_unedited$`1e_BMI`))
+    #consent dates
+    Consent_first<-format(min(CAL_baseline$`1a_ConsentDate`), '%d %B, %Y')
+    Consent_last<-format(max(CAL_baseline$`1a_ConsentDate`), '%d %B, %Y')
+    
+    #diagnosis data
+    No_diag_date<-sum(is.na(CAL_baseline$`10_Date`))
+    Diagnosis_known<-nrow(CAL_baseline)-No_diag_date
+    
+    Diag_min<-min(CAL_baseline$`10_TimeFromOnset`, na.rm=T)
+    Diag_max<-max(CAL_baseline$`10_TimeFromOnset`, na.rm=T)
+    
+```
+
+This analysis includes `r nrow(CAL_baseline)` baseline records for patients recruited between `r Consent_first` and `r Consent_last`.  
+
+##Demographics
+
+Gender data were available for `r Gender_completeness` patients. Of these, `r Male_no` (`r round(100*(Male_no)/Gender_completeness, digits=1)`%) were male and `r Female_no` (`r round(100*(Female_no)/Gender_completeness, digits=1)`%) were female.  
+
+The distribution of age data approximated normality (Shapiro test p=`r Age_dist`).  Mean age was `r Age_overall_mean` ± `r Age_overall_SD` years (`r Male_mean` males, `r Female_mean` females, p = `r Age.t.p`). Age data were missing for `r Age_missing` patients.
+
+Ethnicity is not considered in this analysis as only `r Non_caucasian` patients are coded as non-Caucasian (of whom `r Ethnicity_missing` have missing data.
+Weight and BMI data are not described due to limited information being present (weight data missing in `r weight_missing`; BMI data missing in `r bmi_missing`).
+
+Date of diagnosis of calciphlaxis is documented for `r Diagnosis_known` patients. Time from diagnosis to consent ranges from `r Diag_min` to `r Diag_max` days.
+\newpage
+
+## Renal status
+
+```{r echo=FALSE}
+#CODE FOR DESCRIPTIVE ORGAN SUPPORT DATA
+    
+  renal_status<-nrow(CAL_baseline) - sum(is.na(CAL_baseline$`4_RenalStatus`))
+  renal_status_pct<-round(100*(renal_status/nrow(CAL_baseline)), digits=1)
+  
+  renal_earliest<-min(CAL_baseline$`3_DateFirstTreatment`, na.rm=TRUE)
+  renal_earliest<-format(renal_earliest, '%d %B, %Y')
+  
+  renal_latest<-max(CAL_baseline$`3_DateFirstTreatment`, na.rm=TRUE)
+  renal_latest<-format(renal_latest, '%d %B, %Y')
+  
+  CAL_baseline$renal_time<-CAL_baseline$`1a_ConsentDate`-CAL_baseline$`3_DateFirstTreatment`
+  CAL_baseline$renal_time<-as.numeric(CAL_baseline$renal_time)
+    median_renal_time<-round(median(CAL_baseline$renal_time, na.rm=T), digits=0)
+    min_renal_time<-min(CAL_baseline$renal_time, na.rm=T)
+    max_ren_time<-as.numeric(max(CAL_baseline$renal_time, na.rm=T))
+    #this next line is needed to avoid e.g. 4*10{4} notation
+    max_ren_time<-format(max_ren_time,scientific=FALSE)
+  
+  #NEED TABLE ON MODALITIES  
+    modality_table<-table(CAL_baseline$`4_RenalStatus`)
+    
+  #previous modality information
+    #transplant
+  tx_prev_rrt<-ifelse(CAL_baseline$`4_RenalStatus`=="Transplant"  & CAL_baseline$`5_PreviousRR_PD`=="Yes" |CAL_baseline$`4_RenalStatus`=="Transplant"  & CAL_baseline$`5_PreviousRR_HDHDF`=="Yes", 1,0)  
+```
+
+Data on renal background were availabe for `r renal_status` patients (`r renal_status_pct`%). The earliest documented occurance of or organ support was `r renal_earliest` with the most recent occuring at `r renal_latest`. 
+
+The median time between ESRD / organ support and consent to the study was `r median_renal_time` days (range `r min_renal_time` to `r max_ren_time` days).
+
+Most patients with a documented renal status were on haemodialysis / haemodiafiltration :
+
+Renal status | Number
+-------------|---------
+`r names(modality_table[1])`|`r modality_table[1]`
+`r names(modality_table[2])`|`r modality_table[2]`
+`r names(modality_table[3])`|`r modality_table[3]`
+`r names(modality_table[4])`|`r modality_table[4]`
+`r names(modality_table[5])`|`r modality_table[5]`
+`r names(modality_table[6])`|`r modality_table[6]`
+
+Of the `r modality_table[6]` patients with a `r names(modality_table[6])`, `r sum(tx_prev_rrt, na.rm=T)` had a history of either haemodialysis / haemodiafiltration or peritoneal dialysis.
+
+```{r echo=FALSE}
+### out of order - do section 8 to describe HD time / cCa in fluid 
+  
+  CAL_baseline_HD<-subset(CAL_baseline, CAL_baseline$`4_RenalStatus`=="HD/HDF")
+  
+  #missing HD data 
+  HD_missing<-sum(is.na(CAL_baseline_HD$`8_Haemodialysis_Sessions`))
+  
+  CAL_baseline_HD$`8_Haemodialysis_Sessions`<-as.factor(as.character(CAL_baseline_HD$`8_Haemodialysis_Sessions`))
+  CAL_baseline_HD$`8_Haemodialysis_Minutes`<-as.factor(as.character(CAL_baseline_HD$`8_Haemodialysis_Minutes`))
+  
+  HD_mins<-levels(CAL_baseline_HD$`8_Haemodialysis_Minutes`)
+  HD_sessions<-levels(CAL_baseline_HD$`8_Haemodialysis_Sessions`)
+
+  jim<-table(CAL_baseline_HD$`8_Haemodialysis_Sessions`, CAL_baseline_HD$`8_Haemodialysis_Minutes`)
+  
+  Cal_min<-min(CAL_baseline_HD$`8_Haemodialysis_DialysateCalciumConcentration`, na.rm=T)
+  Cal_max<-max(CAL_baseline_HD$`8_Haemodialysis_DialysateCalciumConcentration`, na.rm=T)
+  Cal_med<-median(CAL_baseline_HD$`8_Haemodialysis_DialysateCalciumConcentration`, na.rm=T)
+  
+  Cal_med<-median(CAL_baseline_HD$`8_Haemodialysis_DialysateCalciumConcentration`, na.rm=T)
+  Cal_q25 <-quantile(CAL_baseline_HD$`8_Haemodialysis_DialysateCalciumConcentration`, 0.25, na.rm=T )
+  Cal_q75 <-quantile(CAL_baseline_HD$`8_Haemodialysis_DialysateCalciumConcentration`, 0.75, na.rm=T )
+```
+
+
+Of the `r modality_table[4]` patients on haemodialysis or haemodiafiltration, data on dialysis sessions / hours were missing for `r HD_missing` patients.
+At the time of consent, most patients were on a standard prescription for time on dialysis:
+
+Mins / sessions| 2|3|4|5|6|7
+-----|-|-|-|-|-|-
+`r names(jim[1,][1])` |`r jim[1,1]` |`r jim[2,1]` |`r jim[3,1]` |`r jim[4,1]` |`r jim[5,1]` |`r jim[6,1]`
+`r names(jim[1,][2])` |`r jim[1,2]` |`r jim[2,2]` |`r jim[3,2]` |`r jim[4,2]` |`r jim[5,2]` |`r jim[6,2]`
+`r names(jim[1,][3])` |`r jim[1,3]` |`r jim[2,3]` |`r jim[3,3]` |`r jim[4,3]` |`r jim[5,3]` |`r jim[6,3]`
+`r names(jim[1,][4])` |`r jim[1,4]` |`r jim[2,4]` |`r jim[3,4]` |`r jim[4,4]` |`r jim[5,4]` |`r jim[6,4]`
+`r names(jim[1,][5])` |`r jim[1,5]` |`r jim[2,5]` |`r jim[3,5]` |`r jim[4,5]` |`r jim[5,5]` |`r jim[6,5]`
+`r names(jim[1,][6])` |`r jim[1,6]` |`r jim[2,6]` |`r jim[3,6]` |`r jim[4,6]` |`r jim[5,6]` |`r jim[6,6]`
+
+Dialysate calcium concentrations ranged from `r Cal_min` to `r Cal_max` mmol/L, with a median value of `r Cal_med` mmol/L (IQR `r Cal_q25` - `r Cal_q75`).
+
+
+\newpage
+
+## Baseline co-morbidity
+
+```{r, echo=FALSE}
+
+  #unlike the cleaned data (prepared for easy reading, comorbid codes have been left as 1/0)
+  #therefore need to reassign -1 to NA
+  Calciphylaxis_NA_remove<- function(x) {
+                     
+    x[x=="-1"]<-NA
+    x<<-as.numeric(as.character(x))
+  }
+  
+  CAL_baseline[10:17]<-lapply(CAL_baseline[10:17], Calciphylaxis_NA_remove)
+  
+  #sinlge line of code to address the fact that 'Heart disease' has a single field coded as "3"
+  CAL_baseline$`6_HeartDisease`[CAL_baseline$`6_HeartDisease`=="3"]<-NA
+  
+  #replace 2 with 0 for negative responses
+  Calciphylaxis_two_remove<- function(x) {
+                     
+    x[x=="2"]<-0
+    x<<-as.numeric(as.character(x))
+  }
+  CAL_baseline[10:17]<-lapply(CAL_baseline[10:17], Calciphylaxis_two_remove)
+  
+  #count na values for comorbidities
+  com_na_count <-sapply(CAL_baseline[10:17], function(y) sum(length(which(is.na(y)))))
+  
+  #count numbers of patients with a comorbidity
+  com_count <-sapply(CAL_baseline[10:17], function(y) sum(y, na.rm=T ))
+  
+  #tidy name values
+  names(com_na_count)<-sapply(names(com_na_count), function(y) gsub("6_", "",(y)))
+  
+  #percentage values - those with data
+  com_pct <- round  (100*(com_count/(nrow(CAL_baseline) - com_na_count)), digits=1)
+  
+  #percentage values - all patients
+  com_pct_all <- round  (100*(com_count/nrow(CAL_baseline)), digits=1)
+  
+```
+
+Comorbidity | n= missing data | n = present | Percentage with data| Percentage of all patients
+------------|------------|-------------|------------|----
+`r names(com_na_count[1])`|`r com_na_count[1]`| `r com_count[1]`  |  `r com_pct[1]`|`r com_pct_all[1]`
+`r names(com_na_count[2])`|`r com_na_count[2]`| `r com_count[2]`  |  `r com_pct[2]`|`r com_pct_all[2]`
+`r names(com_na_count[3])`|`r com_na_count[3]`| `r com_count[3]`  |  `r com_pct[3]`|`r com_pct_all[3]`
+`r names(com_na_count[4])`|`r com_na_count[4]`| `r com_count[4]`  |  `r com_pct[4]`|`r com_pct_all[4]`
+`r names(com_na_count[5])`|`r com_na_count[5]`| `r com_count[5]`  |  `r com_pct[5]`|`r com_pct_all[5]`
+`r names(com_na_count[6])`|`r com_na_count[6]`| `r com_count[6]`  |  `r com_pct[6]`|`r com_pct_all[6]`
+`r names(com_na_count[7])`|`r com_na_count[7]`| `r com_count[7]`  |  `r com_pct[7]`|`r com_pct_all[7]`
+`r names(com_na_count[8])`|`r com_na_count[8]`| `r com_count[8]`  |  `r com_pct[8]`|`r com_pct_all[8]`
+
+
+```{r echo=FALSE}
+ #data for biochemistry table
+  
+    biochem_na_count <-sapply(CAL_baseline[19:28], function(y) sum(length(which(is.na(y)))))
+  
+    biochem_mean <-sapply(CAL_baseline[19:28], function(y) mean(y, na.rm=T ))
+    biochem_mean<-round(biochem_mean, digits=1)
+    
+    biochem_sd <-sapply(CAL_baseline[19:28], function(y) sd(y, na.rm=T ))
+    biochem_sd<-round(biochem_sd, digits=1)
+    
+    biochem_median<-sapply(CAL_baseline[19:28], function(y) median(y, na.rm=T ))
+    biochem_median<-round(biochem_median, digits=1)
+    
+    biochem_q25 <-sapply(CAL_baseline[19:28], function(y) quantile(y,c(.25), na.rm=T ))
+    biochem_25<-round(biochem_q25, digits=1)
+    
+    biochem_q75 <-sapply(CAL_baseline[19:28], function(y) quantile(y, c(.75), na.rm=T ))
+    biochem_75<-round(biochem_q75, digits=1)
+    
+    names(biochem_na_count)<-sapply(names(biochem_na_count), function(y) gsub("7_", "",(y)))
+
+```
+Biochemistry | n= missing data | Mean | SD | Median | 25th | 75th
+-------------|-----------------|----- |----|--------|------|------
+`r names(biochem_na_count[1])`|`r biochem_na_count[1]`| `r biochem_mean[1]`  |  `r biochem_sd[1]` | `r biochem_median[1]` | `r biochem_q25[1]` | `r biochem_q75[1]` 
+`r names(biochem_na_count[2])`|`r biochem_na_count[2]`| `r biochem_mean[2]`  |  `r biochem_sd[2]` | `r biochem_median[2]` | `r biochem_q25[2]` | `r biochem_q75[2]` 
+`r names(biochem_na_count[3])`|`r biochem_na_count[3]`| `r biochem_mean[3]`  |  `r biochem_sd[3]` | `r biochem_median[3]` | `r biochem_q25[3]` | `r biochem_q75[3]` 
+`r names(biochem_na_count[4])`|`r biochem_na_count[4]`| `r biochem_mean[4]`  |  `r biochem_sd[4]` | `r biochem_median[4]` | `r biochem_q25[4]` | `r biochem_q75[4]` 
+`r names(biochem_na_count[5])`|`r biochem_na_count[5]`| `r biochem_mean[5]`  |  `r biochem_sd[5]` | `r biochem_median[5]` | `r biochem_q25[5]` | `r biochem_q75[5]` 
+`r names(biochem_na_count[6])`|`r biochem_na_count[6]`| `r biochem_mean[6]`  |  `r biochem_sd[6]` | `r biochem_median[6]` | `r biochem_q25[6]` | `r biochem_q75[6]` 
+`r names(biochem_na_count[7])`|`r biochem_na_count[7]`| `r biochem_mean[7]`  |  `r biochem_sd[7]` | `r biochem_median[7]` | `r biochem_q25[7]` | `r biochem_q75[7]` 
+`r names(biochem_na_count[8])`|`r biochem_na_count[8]`| `r biochem_mean[8]`  |  `r biochem_sd[8]` | `r biochem_median[8]` | `r biochem_q25[8]` | `r biochem_q75[8]` 
+`r names(biochem_na_count[9])`|`r biochem_na_count[9]`| `r biochem_mean[9]`  |  `r biochem_sd[9]` | `r biochem_median[9]` | `r biochem_q25[9]` | `r biochem_q75[9]` 
+`r names(biochem_na_count[10])`|`r biochem_na_count[10]`| `r biochem_mean[10]`  |  `r biochem_sd[10]` | `r biochem_median[10]` | `r biochem_q25[10]` | `r biochem_q75[10]` 
+
+\newpage
+
+## Contributory factors
+```{r echo=FALSE}
+
+    ###Need to address section 9 - first remove -1 and recode 2 values
+    
+    CAL_baseline[34:35]<-lapply(CAL_baseline[34:35], Calciphylaxis_NA_remove)
+    CAL_baseline[34:35]<-lapply(CAL_baseline[34:35], Calciphylaxis_two_remove)
+    
+    
+    CAL_baseline[37]<-lapply(CAL_baseline[37], Calciphylaxis_NA_remove)
+    CAL_baseline[37]<-lapply(CAL_baseline[37], Calciphylaxis_two_remove)
+    
+    CAL_baseline[40:43]<-lapply(CAL_baseline[40:43], Calciphylaxis_NA_remove)
+    CAL_baseline[40:43]<-lapply(CAL_baseline[40:43], Calciphylaxis_two_remove)
+    
+    #as columns are separated, create subset df for these to be done easily (note iv route discared here)
+    Section_9 <- CAL_baseline[c(1,34,37,40:43)]
+    
+    #count na values for comorbidities
+  ppt_na_count <-sapply(Section_9[2:7], function(y) sum(length(which(is.na(y)))))
+  
+  #count numbers of patients with a comorbidity
+  ppt_count <-sapply(Section_9[2:7], function(y) sum(y, na.rm=T ))
+  
+  #tidy name values
+  names(ppt_na_count)<-sapply(names(ppt_na_count), function(y) gsub("9_", "",(y)))
+  
+  #percentage values - those with data
+  ppt_pct <- round  (100*(ppt_count/(nrow(Section_9) - ppt_na_count)), digits=1)
+  
+  #percentage values - those with data
+  #com_pct <- round  (100*(com_count/(nrow(CAL_baseline) - com_na_count)), digits=1)
+  
+  #percentage values - all patients
+  ppt_pct_all <- round  (100*(ppt_count/nrow(Section_9)), digits=1)
+  
+  #count patients on a PO4 binder containing calcium
+  Ca_binder<-sum(CAL_baseline$`9_Phosphate_Binder_Calcium`)
+    
+```
+
+Risk factor | n= missing data | n = present | Percentage with data| Percentage of all patients
+------------|------------|-------------|------------|----
+`r names(ppt_na_count[1])`|`r ppt_na_count[1]`| `r ppt_count[1]`  |  `r ppt_pct[1]`|`r ppt_pct_all[1]`
+`r names(ppt_na_count[2])`|`r ppt_na_count[2]`| `r ppt_count[2]`  |  `r ppt_pct[2]`|`r ppt_pct_all[2]`
+`r names(ppt_na_count[3])`|`r ppt_na_count[3]`| `r ppt_count[3]`  |  `r ppt_pct[3]`|`r ppt_pct_all[3]`
+`r names(ppt_na_count[4])`|`r ppt_na_count[4]`| `r ppt_count[4]`  |  `r ppt_pct[4]`|`r ppt_pct_all[4]`
+`r names(ppt_na_count[5])`|`r ppt_na_count[5]`| `r ppt_count[5]`  |  `r ppt_pct[5]`|`r ppt_pct_all[5]`
+`r names(ppt_na_count[6])`|`r ppt_na_count[6]`| `r ppt_count[6]`  |  `r ppt_pct[6]`|`r ppt_pct_all[6]`
+`r names(ppt_na_count[7])`|`r ppt_na_count[7]`| `r ppt_count[7]`  |  `r ppt_pct[7]`|`r ppt_pct_all[7]`
+
+Of the `r ppt_count[2]` patients prescribed a phosphate binder, `r Ca_binder` were prescribed a calcium containing drug.
+
+
+\newpage
+```{r echo=FALSE}
+#diagnosis columns have been left as numeric - need to address as above:
+    CAL_baseline[46:51]<-lapply(CAL_baseline[46:51], Calciphylaxis_NA_remove)
+    CAL_baseline[46:51]<-lapply(CAL_baseline[46:51], Calciphylaxis_two_remove)
+
+    #46 - 51 are diagnosis codes
+    
+     #count na values for comorbidities
+  diag_na_count <-sapply(CAL_baseline[46:51], function(y) sum(length(which(is.na(y)))))
+  
+  #count numbers of patients with a comorbidity
+  diag_count <-sapply(CAL_baseline[46:51], function(y) sum(y, na.rm=T ))
+  
+  #tidy name values
+  names(diag_na_count)<-sapply(names(diag_na_count), function(y) gsub("10_DiagnosisMadeBy_", "",(y)))
+  
+  #percentage values - those with data
+  diag_pct <- round  (100*(diag_count/(nrow(CAL_baseline) - diag_na_count)), digits=1)
+  
+  #percentage values - all recruited
+  diag_pct_all <- round  (100*(diag_count/nrow(CAL_baseline)), digits=1)
+  
+```
+## Method of diagnosis
+The diagnosis of calciphlyaxis was made as below:
+
+Mode of diagnosis | n= missing data | n = diagnosed this way | Percentage with data | Percentage of all patients
+------------|------------|-------------|------------|----
+`r names(diag_na_count[1])`|`r diag_na_count[1]`| `r diag_count[1]`  |  `r diag_pct[1]`|  `r diag_pct_all[1]`
+`r names(diag_na_count[2])`|`r diag_na_count[2]`| `r diag_count[2]`  |  `r diag_pct[2]`|`r diag_pct_all[2]`
+`r names(diag_na_count[3])`|`r diag_na_count[3]`| `r diag_count[3]`  |  `r diag_pct[3]`|`r diag_pct_all[3]`
+`r names(diag_na_count[4])`|`r diag_na_count[4]`| `r diag_count[4]`  |  `r diag_pct[4]`|`r diag_pct_all[4]`
+`r names(diag_na_count[5])`|`r diag_na_count[5]`| `r diag_count[5]`  |  `r diag_pct[5]`|`r diag_pct_all[5]`
+`r names(diag_na_count[6])`|`r diag_na_count[6]`| `r diag_count[6]`  |  `r diag_pct[6]`|`r diag_pct_all[6]`
+
+```{r echo=FALSE}
+
+  #work out how many patients had jsut a clinical diagnosis
+  Clinical_diag<-subset(CAL_baseline, CAL_baseline$`10_DiagnosisMadeBy_ClinicaIimpression`=="1")
+  Clinical_diag$dual<-ifelse(Clinical_diag$`10_DiagnosisMadeBy_Wound`=="1"|Clinical_diag$`10_DiagnosisMadeBy_SkinBiopsy`=="1",1,0)
+  Clincial_dual<-sum(Clinical_diag$dual)
+  Clincial_dual_pct<-round(100*(Clincial_dual/nrow(Clinical_diag)), digits=1)
+```
+Of the `r diag_count[1]` patients with a clinical diagnosis, `r Clincial_dual` (`r Clincial_dual_pct`%) had this diagnosis confirmed by either wound or skin biopsy.
+
+The location of lesions was:
+
+```{r echo=FALSE}
+#52:61
+  
+  #diagnosis columns have been left as numeric - need to address as above:
+    CAL_baseline[52:61]<-lapply(CAL_baseline[52:61], Calciphylaxis_NA_remove)
+    CAL_baseline[52:61]<-lapply(CAL_baseline[52:61], Calciphylaxis_two_remove)
+
+    #46 - 51 are diagnosis codes
+    
+     #count na values for comorbidities
+  site_na_count <-sapply(CAL_baseline[52:61], function(y) sum(length(which(is.na(y)))))
+  
+  #count numbers of patients with a comorbidity
+  site_count <-sapply(CAL_baseline[52:61], function(y) sum(y, na.rm=T ))
+  
+  #tidy name values
+  names(site_na_count)<-sapply(names(site_na_count), function(y) gsub("10_LocationOfLesions_", "",(y)))
+  
+  #percentage values - those with data
+  site_pct <- round  (100*(site_count/(nrow(CAL_baseline) - site_na_count)), digits=1)
+  
+  #percentage values - all recruited
+  site_pct_all <- round  (100*(site_count/nrow(CAL_baseline)), digits=1)
+  
+```
+
+Mode of diagnosis | n= missing data | n = diagnosed this way | Percentage with data | Percentage of all patients
+------------|------------|-------------|------------|----
+`r names(site_na_count[1])`|`r site_na_count[1]`| `r site_count[1]`  |  `r site_pct[1]`|  `r site_pct_all[1]`
+`r names(site_na_count[2])`|`r site_na_count[2]`| `r site_count[2]`  |  `r site_pct[2]`|  `r site_pct_all[2]`
+`r names(site_na_count[3])`|`r site_na_count[3]`| `r site_count[3]`  |  `r site_pct[3]`|  `r site_pct_all[3]`
+`r names(site_na_count[4])`|`r site_na_count[4]`| `r site_count[4]`  |  `r site_pct[4]`|  `r site_pct_all[4]`
+`r names(site_na_count[5])`|`r site_na_count[5]`| `r site_count[5]`  |  `r site_pct[5]`|  `r site_pct_all[5]`
+`r names(site_na_count[6])`|`r site_na_count[6]`| `r site_count[6]`  |  `r site_pct[6]`|  `r site_pct_all[6]`
+`r names(site_na_count[7])`|`r site_na_count[7]`| `r site_count[7]`  |  `r site_pct[7]`|  `r site_pct_all[7]`
+`r names(site_na_count[8])`|`r site_na_count[8]`| `r site_count[8]`  |  `r site_pct[8]`|  `r site_pct_all[8]`
+`r names(site_na_count[9])`|`r site_na_count[9]`| `r site_count[9]`  |  `r site_pct[9]`|  `r site_pct_all[9]`
+`r names(site_na_count[10])`|`r site_na_count[10]`| `r site_count[10]`  |  `r site_pct[10]`|  `r site_pct_all[10]`
+
+```{r echo=FALSE}
+#describe the numbers of patients with single / multiple lesion sites
+  CAL_baseline$Lesion_number<-rowSums(CAL_baseline[,52:61])
+  Lesions_number<-table(CAL_baseline$Lesion_number)
+```
+
+The majority of patients had a single lesion:
+
+1 lesion|2 lesions|3 lesions
+--------|---------|-----
+`r Lesions_number[1]`|`r Lesions_number[2]`|`r Lesions_number[3]`
+
+\newpage
+
+# Follow up data
+
+Several issues need thinking about
+
+1 - time data are available for lesion resolution (subjective), but not for death. This will limit survival analyses
+
+2 - later analyses need to account for the fact that death is a competing risk for lesion resolution
+
+3 - how is lesion resolution defined? e.g. patent 6 has two lesions at baseline. One seems to have resolved at the first follow up point and the second at the second follow up point.  The coding for these follow up visits is non-resolution / resolution respectively.The assumption based on this is that only full resolution should be coded. This may impact senstivity.
+
+4 - for follow up visits, should we use LOCF. eg patient 15 is coded as having binders changed as an intervention at their first follow up. However, at the second follow up this field is coded as a negative. One interpretation is that they went back to their original binder regime.  
+
+5 - data cleaning for follow input. eg patient 15 has 2 follow up datasets with the same date of entry. Presume data entry error as patient died
+
+6 - data cleaning / validation required.  Patient 7 has parathyroid surgery coded as an intervention but these are the same data as in the baseline table.  Will need to review interventions to ensure they are appropriately coded.
+
+7 - needs discussion with trial nurses regarding date values for follow up visits. eg patient 48 has 8 follow up visits but the date values are non-sequential. Is this a data capture issue or are the date values correct and the follow up data need re-ordering?
+
+\newpage
+
+##Association of baseline characteristics with mortality
+
+```{r echo=FALSE}
+
+#First select mortality data
+  CAL_Death<-CAL_followup[c("StudyID", "8_Death")]
+  #reorder columns so that death coding occurs first for patients with multiple follow up events
+  CAL_Death<-CAL_Death[order(CAL_Death$StudyID, -CAL_Death$`8_Death`),]
+  #collapse to only a single data point
+  CAL_Death<-CAL_Death[!duplicated(CAL_Death$StudyID),]
+  
+#Now subset baseline exploratory varaibles of interest - ##THIS NEEDS DISCUSSION WITH SMEETA
+  CAL_Death_Baseline<-CAL_baseline[c("StudyID", "1c_Age","1b_Gender","4_RenalStatus", "7_Calcium", "7_Haemoglobin", "9_Phosphate_Binder_Calcium", "Lesion_number", "9_Calcimimetics_ACEARBs", "9_Calcimimetics_VitaminK", "9_Calcimimetics_Erythropoetins")]
+  
+  #Link to form a single dataframe
+  CAL_Death_Analysis<-left_join(CAL_Death_Baseline, CAL_Death, by="StudyID")
+  
+  #subset to select complete cases
+  CAL_Death_Analysis<-CAL_Death_Analysis[complete.cases(CAL_Death_Analysis), ] 
+  
+  #recode and clean
+  #assume that calcium values of e.g. 210 have simply misplaced a decimal point
+  CAL_Death_Analysis$`7_Calcium`<-ifelse(CAL_Death_Analysis$`7_Calcium`>100, CAL_Death_Analysis$`7_Calcium`/100, CAL_Death_Analysis$`7_Calcium`)
+  #similar for haemoglobin (need to be done for inappropraite units both ways)
+  CAL_Death_Analysis$`7_Haemoglobin`<-ifelse(CAL_Death_Analysis$`7_Haemoglobin`>20, CAL_Death_Analysis$`7_Haemoglobin`/10, CAL_Death_Analysis$`7_Haemoglobin`)
+  CAL_Death_Analysis$`7_Haemoglobin`<-ifelse(CAL_Death_Analysis$`7_Haemoglobin`<1, CAL_Death_Analysis$`7_Haemoglobin`*10, CAL_Death_Analysis$`7_Haemoglobin`)
+  #ensure factorial variables correctly coded
+   #calcium containing binder
+  CAL_Death_Analysis$`9_Phosphate_Binder_Calcium`<-as.factor(CAL_Death_Analysis$`9_Phosphate_Binder_Calcium`)
+    #Lesion number.  Make lesion number 1 or greater than 1 due to small numbers of patients with 2 or 3 lesions
+  CAL_Death_Analysis$Lesion_number<-ifelse(CAL_Death_Analysis$Lesion_number>1,2,1)
+  CAL_Death_Analysis$Lesion_number<-as.factor(CAL_Death_Analysis$Lesion_number)
+   #Calcimimetics
+  CAL_Death_Analysis$`9_Calcimimetics_ACEARBs`<-as.factor(CAL_Death_Analysis$`9_Calcimimetics_ACEARBs`)
+  CAL_Death_Analysis$`9_Calcimimetics_VitaminK`<-as.factor(CAL_Death_Analysis$`9_Calcimimetics_VitaminK`)
+  CAL_Death_Analysis$`9_Calcimimetics_Erythropoetins`<-as.factor(CAL_Death_Analysis$`9_Calcimimetics_Erythropoetins`)
+   #simplify renal status
+  CAL_Death_Analysis$`4_RenalStatus`<-ifelse(CAL_Death_Analysis$`4_RenalStatus`=="CKD5", "CKD", "Organ support")
+```
+
+Baseline crosssectional analysis on survival was performed on `r nrow(CAL_Death_Analysis)` patients who had complete baseline data and documented survival status.
+
