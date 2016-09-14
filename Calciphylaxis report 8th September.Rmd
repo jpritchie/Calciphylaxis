@@ -721,4 +721,4 @@ Several issues need thinking about
 ```
 
 Baseline crosssectional analysis on survival was performed on `r nrow(CAL_Death_Analysis)` patients who had complete baseline data and documented survival status.
-
+ 
