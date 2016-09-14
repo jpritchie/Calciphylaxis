@@ -5,3 +5,5 @@ The main .R file contains
  - cleaning
  - summary information
  - follwo up assessment
+
+The .rmd file will generate a summary .pdf of the baseline patient characterisits
