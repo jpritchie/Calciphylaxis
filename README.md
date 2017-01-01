@@ -6,4 +6,6 @@ The main .R file contains
  - summary information
  - follwo up assessment
 
-The .rmd file will generate a summary .pdf of the baseline patient characterisits
+The .rmd file will generate a summary .pdf of the baseline patient characteristics
+
+The matching .r file performs a 1:1 match with baseline data from the SKS-HD
